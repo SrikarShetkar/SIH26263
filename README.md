@@ -1,3 +1,117 @@
+# APAAR Sentinel
+ 
+**Validate Student Records. Detect Anomalies. Enable Trusted Verification.**
+ 
+Smart India Hackathon 2026 · Problem Statement **SIH26263** · Team **ShatVyuha** (Team ID 197434)
+Theme: Smart Automation · Category: Software
+ 
+> Development of an APAAR ID-Based Student Data Management and Verification Platform for AICTE-Approved Institutions.
+ 
+---
+ 
+## Overview
+ 
+AICTE receives student information from approved institutions in different forms. PGDM institutions submit detailed data annually, while most others report only aggregate enrolment during approval. This leaves AICTE with limited student-level visibility.
+ 
+**APAAR Sentinel** is a scalable, interoperable, and user-friendly rule-based, analytics-assisted platform that uses the **APAAR ID** as the primary key for student records. It helps AICTE:
+ 
+- validate student-level records before and after submission,
+- monitor admissions against approved intake,
+- flag unusual enrolment patterns for **human review**,
+- enable consent-based verification of student records.
+> **Scope:** Sentinel checks the consistency of submitted records and flags potential discrepancies for human review. It does not independently prove attendance, and it does not label any student or institution as fraudulent. A flag is a lead, not proof.
+ 
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [User Flow](#user-flow)
+- [Architecture](#architecture)
+- [Security & Privacy](#security--privacy)
+- [Validation Rule Catalogue](#validation-rule-catalogue)
+- [Duplicate & Anomaly Detection](#duplicate--anomaly-detection)
+- [Data Model](#data-model)
+- [API Overview](#api-overview)
+- [Evaluation (Synthetic Data)](#evaluation-synthetic-data)
+- [Scale & Performance](#scale--performance)
+- [Privacy & Governance](#privacy--governance)
+- [Scope & Limitations](#scope--limitations)
+- [Users & Roles](#users--roles)
+- [Roadmap](#roadmap)
+- [References](#references)
+- [Team](#team)
+ 
+---
+ 
+## Key Features
+ 
+| Area | What it does |
+|---|---|
+| **Upload & dry-run** | Institutions upload via CSV or API. A dry-run catches missing APAAR IDs, bad formats and impossible DOBs before submission. A what-if mode shows the effect of additional admissions on seat utilisation. |
+| **APAAR validation** | Syntax check, then registry check through an adapter (reference mock in the prototype; the authorised API is swapped in at deployment without changing core logic). Unconfirmable IDs are held as **pending**, not rejected. |
+| **Seat ledger** | Compares admitted students with approved intake. Supernumerary, NRI, OCI and Foreign National categories are tracked separately. Versioned per academic year and programme. |
+| **Duplicate detection** | APAAR ID is the primary key. Fuzzy matching (RapidFuzz, Fellegi-Sunter-weighted) is a labelled fallback for missing or wrong IDs, used to find potential cross-institution duplicates. |
+| **Cluster & case engine** | Builds a shared-contact graph (NetworkX) and groups related signals into one investigation case with evidence and the rule that fired. |
+| **Anomaly detection** | Rule checks plus Isolation Forest (scikit-learn) as a statistical anomaly signal. |
+| **Review & disputes** | Officer queue, institution response, correct-and-resubmit flow. Every step is logged in a tamper-evident audit log. |
+| **Verification with consent** | Students create purpose-specific, time-bound, revocable QR codes signed with ECDSA P-256. Two-tier model: claim-only verification for employers (student-consent-bound), authoritative lookups for regulators (AICTE-issued credentials). |
+| **Certificate API** | Certificates carry APAAR ID, student ID and a signed verification QR. |
+| **Reports** | Policy, accreditation and regulatory reports — intake utilisation by state/programme, flagged-institution summaries, duplicate and pending-ID trends, aggregate-vs-record reconciliation gaps. |
+| **Security & audit** | JWT + RBAC (gateway + service), TLS 1.3, field-level encryption of APAAR IDs, KMS-managed signing keys, consent ledger, HMAC-chained tamper-evident audit log (Haber-Stornetta style). |
+ 
+---
+ 
+## User Flow
+ 
+```
+Institution          System              System            AICTE Officer       AICTE             Verifier
+Upload & dry-run --> APAAR validation --> Verify       -->  Review & resolve -> Monitor      -->  Verify with consent
+(CSV / API)          (syntax+registry)    (seats,           (case, decision,    (dashboards,       (signed QR,
+                                           duplicates,       dispute)            anomaly signals)   live status)
+                                           clusters)
+        ^------------------------ Correct & resubmit -------------------------|
+```
+ 
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CLIENTS (React · Chart.js)                                              │
+│   • Institution Portal  • AICTE Dashboard  • Verifier Console            │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────────────────────────────────────────────┐
+│  GATEWAY & SECURITY                                                       │
+│   REST · OpenAPI · JWT + RBAC · Consent check · Rate limiting · TLS 1.3   │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────────────────────────────────────────────┐
+│  CORE SERVICES                                                            │
+│   • Ingestion & Validation      (Node/Express)   — upsert by APAAR ID    │
+│   • Validation & Matching       (Python)         — duplicate candidates   │
+│   • Cluster & Case Engine       (Python)         — graph + Isolation Forest│
+│   • Review & Disputes            (Node)           — officer queue + audit  │
+│   • Verify & Reports             (Node)           — signed QR + reports    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────────────────────────────────────────────┐
+│  DATA & AUDIT                                                             │
+│   MySQL · Encrypted raw uploads · HMAC-chained audit log                  │
+│   Consent ledger · Job queue (planned, async)                             │
+└─────────────────────────────────────────────────────────────────────────┘
+                                  │
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXTERNAL SYSTEMS (via Adapters)                                          │
+│   • APAAR registry (adapter — reference mock)                            │
+│   • AICTE portal   (adapter — stub contract)                             │
+│   • Institution ERPs (CSV / API)                                          │
+│   • DigiLocker / ABC (adapter — future)                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
 | Layer | Components |
 |---|---|
